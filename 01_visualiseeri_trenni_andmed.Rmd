@@ -1,0 +1,221 @@
+---
+title: "Minu trennide visualiseerimine"
+---
+
+Tee kõigist oma Endomondos salvestatud trennidest small multiples maps grafaikud.
+Aluseks on võetud: https://github.com/marcusvolz/strava
+
+```{r}
+library(tidyverse)
+library(trackeR)
+library(jsonlite)
+library(lubridate)
+library(patchwork)
+
+e <- trackeR::readTCX("data/endomondo/Workouts/2011-05-31 16:53:32.0.tcx")
+
+p <- read_json("data/endomondo/Workouts/2011-05-31 19:47:13.0.json")[[1]][["sport"]]
+
+```
+
+Koosta listid kõigist json (kirjeldus) failidest.
+```{r}
+failid <- list.files("data/endomondo/Workouts/", full.names = TRUE) %>% 
+  as.tibble()
+
+json_failid <- failid %>% 
+ filter(str_detect(value, "json")) %>% 
+  pull(value)
+```
+
+Funktsioon, mis laeb json failidest ainult spordiala ja faili nime.
+```{r}
+lae_spordiala_nimi <- function(x){
+  
+  raw_json <- read_json(x)
+  
+  spordiala <- raw_json[[1]][["sport"]]
+  
+  distants <- raw_json[[7]][["distance_km"]]
+  
+  df <- tibble(spordiala,
+               distants,
+               fail = x)
+  
+  return(df)
+}
+
+lae_spordiala_nimi_possibly <- possibly(lae_spordiala_nimi, NULL)
+```
+
+Lae kõigi oma Endomondo trennide spordialad
+```{r}
+koik_trennid <- map_df(json_failid, lae_spordiala_nimi_possibly)
+```
+
+Spordialade jaotus
+```{r}
+koik_trennid %>% 
+  count(spordiala, sort = TRUE)
+```
+
+Koosta funktsioon tcx failide laadimiseks
+```{r}
+lae_tcx <- function(x){
+  df <- readTCX(x)
+      
+  df %>%
+    mutate(fail = x)
+}
+
+lae_tcx_possibly <- possibly(lae_tcx, NULL)
+```
+
+
+## Orienteerumised
+
+Lae kõigi oma orienteerumiste trackid
+```{r}
+# loetelu path-dega
+orienteerumised_path <- koik_trennid %>% 
+  filter(spordiala == "ORIENTEERING") %>% 
+  mutate(fail = str_replace(fail, "json", "tcx")) %>% 
+  pull(fail)
+
+# lae trackid
+orienteerumised_track <- map_df(orienteerumised_path, lae_tcx_possibly)
+```
+
+tutvu_andmetega
+```{r}
+glimpse(orienteerumised_track)
+```
+
+Jäta alles ainult esimene, viimane ja iga 5-s punkt, et andmemahtu vähendada
+```{r}
+orienteerumised_5 <- orienteerumised_track %>% 
+  group_by(fail) %>% 
+  mutate(row = row_number(),
+         keep = case_when(row == 1 ~ 1,
+                          row == max(row) ~ 1,
+                          row %% 5 == 0 ~ 1,
+                          TRUE ~ 0)) %>% 
+  ungroup() %>% 
+  filter(keep == 1) %>% 
+  mutate(aasta = as.factor(year(time)))
+```
+
+
+Visualiseeri kõik oma orienteerumised
+```{r fig.height=8, fig.width=8}
+orienteerumised_5 %>% 
+  ggplot(aes(longitude, latitude, group = fail, colour = aasta)) +
+  geom_path(size = 0.35, lineend = "round") +
+  facet_wrap(~fail, scales = "free") +
+  theme_void() +
+  theme(panel.spacing = unit(0, "lines"),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        plot.margin = unit(rep(1, 4), "cm"),
+        legend.title = element_blank(),
+        legend.position = "bottom")
+```
+
+
+## Jooksmised
+
+Lae kõigi oma jooksmiste trackid
+```{r}
+# loetelu path-dega
+jooks_path <- koik_trennid %>% 
+  filter(spordiala == "RUNNING") %>% 
+  mutate(fail = str_replace(fail, "json", "tcx")) %>% 
+  pull(fail)
+
+# lae trackid
+jooks_track <- map_df(jooks_path, lae_tcx_possibly)
+```
+
+tutvu_andmetega
+```{r}
+glimpse(jooks_track)
+```
+
+Jäta alles ainult jooksud 5+ km
+Jäta alles ainult esimene, viimane ja iga 5-s punkt, et andmemahtu vähendada
+```{r}
+alla_5_jooks <- koik_trennid %>% 
+  mutate(fail = str_replace(fail, "json", "tcx")) %>% 
+  filter(spordiala == "RUNNING",
+          distants < 5) %>% 
+  pull(fail)
+
+jooks_5 <- jooks_track %>% 
+  filter(!fail %in% alla_5_jooks) %>% 
+  group_by(fail) %>% 
+  mutate(row = row_number(),
+         keep = case_when(row == 1 ~ 1,
+                          row == max(row) ~ 1,
+                          row %% 5 == 0 ~ 1,
+                          TRUE ~ 0)) %>% 
+  ungroup() %>% 
+  filter(keep == 1) %>% 
+  mutate(aasta = as.factor(year(time)))
+
+jooks_5
+```
+
+Koosta eraldi pilt aastaarvudega, et see hiljem legendiks grafaiku külge panna.
+Asukohad on katsetamistega välja timmitud.
+```{r}
+labels <- tribble(
+  ~x, ~y, ~label,
+  0, 0, "2011",
+  0, -1, "2012",
+  0, -3, "2013",
+  0, -5, "2014",
+  0, -7.5, "2015",
+  0, -10, "2016",
+  0, -12, "2017",
+  0, -14, "2018",
+)
+
+aastad <- labels %>% 
+  ggplot(aes(x, y)) +
+  geom_text(aes(label = label, colour = label), size = 5) +
+  theme_void() +
+  guides(colour = "none") +
+  theme(plot.margin = unit(c(-2, 0, 0, 0), "cm"))
+```
+
+
+Visualiseeri kõik oma jooksud
+```{r}
+# random_fail <- jooks_5 %>%
+#   distinct(fail) %>%
+#   sample_n(100) %>%
+#   pull(fail)
+
+jooksud <- jooks_5 %>%
+  # filter(fail %in% random_fail) %>%
+  ggplot(aes(longitude, latitude, group = fail, colour = aasta)) +
+  geom_path(size = 0.35, lineend = "round") +
+  facet_wrap(~fail, scales = "free", ncol = 15) +
+  theme_void() +
+  guides(colour = "none") +
+  theme(panel.spacing = unit(0, "lines"),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        plot.margin = unit(rep(1, 4), "cm"),
+        aspect.ratio = 1)
+```
+
+Pane kokku legend ja jooksude grafaik
+```{r fig.height=28, fig.width=10}
+jooksud_plot <- wrap_plots(aastad, jooksud, widths = c(1, 20))
+
+ggsave(jooksud_plot, filename = "output/jooksud.png", dpi = 90,
+       width = 10, height = 28)
+
+jooksud_plot
+```
