@@ -12,10 +12,6 @@ library(jsonlite)
 library(lubridate)
 library(patchwork)
 
-e <- trackeR::readTCX("data/endomondo/Workouts/2011-05-31 16:53:32.0.tcx")
-
-p <- read_json("data/endomondo/Workouts/2011-05-31 19:47:13.0.json")[[1]][["sport"]]
-
 ```
 
 Koosta listid kõigist json (kirjeldus) failidest.
@@ -56,7 +52,10 @@ koik_trennid <- map_df(json_failid, lae_spordiala_nimi_possibly)
 Spordialade jaotus
 ```{r}
 koik_trennid %>% 
-  count(spordiala, sort = TRUE)
+  group_by(spordiala) %>% 
+  summarise(distants = round(sum(distants, na.rm = TRUE), 0),
+            n = n()) %>% 
+  arrange(desc(n))
 ```
 
 Koosta funktsioon tcx failide laadimiseks
