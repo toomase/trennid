@@ -159,10 +159,18 @@ jooks_5 <- jooks_track %>%
                           TRUE ~ 0)) %>% 
   ungroup() %>% 
   filter(keep == 1) %>% 
-  mutate(aasta = as.factor(year(time)))
+  mutate(aasta = as.factor(year(time))) %>% 
+  select(latitude, longitude, distance, altitude,
+         fail, aasta, time)
 
 jooks_5
 ```
+
+Salvesta jooksu andmed edasiseks kasutamiseks
+```{r}
+write_rds(jooks_5, path = "data/jooks_5.rds")
+```
+
 
 Koosta eraldi pilt aastaarvudega, et see hiljem legendiks grafaiku külge panna.
 Asukohad on katsetamistega välja timmitud.
